@@ -50,20 +50,25 @@ impl<'de> Deserialize<'de> for ParentId {
     where
         D: Deserializer<'de>,
     {
-        let parent: String = Deserialize::deserialize(deserializer)?;
-        let make_err =
-            || de::Error::invalid_value(de::Unexpected::Str(&parent), &"a valid parent id");
-        let (ty, parent_id) = parent.split_once('_').ok_or_else(make_err)?;
-        let type_char = ty.chars().nth(1).ok_or_else(make_err)?;
-        let parent_type: u8 = type_char
-            .to_digit(10)
-            .ok_or_else(make_err)?
-            .try_into()
-            .map_err(|_| make_err())?;
-        Ok(ParentId {
-            parent_type,
-            parent_id: parent_id.into(),
-        })
+        let parent: Option<String> = Option::deserialize(deserializer)?;
+        match parent {
+            Some(parent) => {
+                let make_err =
+                    || de::Error::invalid_value(de::Unexpected::Str(&parent), &"a valid parent id");
+                let (ty, parent_id) = parent.split_once('_').ok_or_else(make_err)?;
+                let type_char = ty.chars().nth(1).ok_or_else(make_err)?;
+                let parent_type: u8 = type_char
+                    .to_digit(10)
+                    .ok_or_else(make_err)?
+                    .try_into()
+                    .map_err(|_| make_err())?;
+                Ok(ParentId {
+                    parent_type,
+                    parent_id: parent_id.into(),
+                })
+            },
+            None => Err(de::Error::custom("parent_id is null")),
+        }
     }
 }
 
@@ -71,18 +76,18 @@ impl FromJsonString for Comment {
     fn from_json_str(line: &str) -> Result<Self> {
         let mut json: serde_json::Value = serde_json::from_str(line)
             .with_context(|| format!("Failed to read json for line: {line}"))?;
-        if let Some(created) = json.get_mut("created_utc") {
-            if let serde_json::Value::String(utc_string) = created {
-                let utc: u64 = utc_string.parse()?;
-                *created = utc.into();
+        
+        // Check and convert `created_utc` from floating-point to integer if necessary
+        if let Some(serde_json::Value::Number(num)) = json.get("created_utc") {
+            if num.is_f64() {
+                let utc = num.as_f64().unwrap() as i64; // Convert floating-point to i64
+                json["created_utc"] = serde_json::Value::Number(serde_json::Number::from(utc));
             }
         }
-        if let Some(score) = json.get_mut("score") {
-            if matches!(score, serde_json::Value::Null) {
-                *score = 0.into()
-            }
-        }
-        let comment = Comment::deserialize(json)
+
+        // Similar conversion logic can be applied to other fields if necessary
+
+        let comment = Comment::deserialize(&json)
             .with_context(|| format!("Failed to deserialize line: {line}"))?;
 
         Ok(comment)

@@ -68,15 +68,23 @@ where
 {
     let json = serde_json::Value::deserialize(deserializer)?;
     match json {
-        serde_json::Value::Number(val) => val
-            .as_i64()
-            .ok_or_else(|| serde::de::Error::custom(format!("invalid timestamp value {val}"))),
+        serde_json::Value::Number(val) => {
+            if let Some(int_val) = val.as_i64() {
+                Ok(int_val)
+            } else if let Some(float_val) = val.as_f64() {
+                // Convert the floating-point value to an integer.
+                // You can choose to round or truncate based on your needs.
+                // Here, we're simply truncating.
+                Ok(float_val.trunc() as i64)
+            } else {
+                Err(serde::de::Error::custom("invalid timestamp value, expected an integer or a floating-point number"))
+            }
+        },
         serde_json::Value::String(val) => {
-            let ret: i64 = val.parse().map_err(|_| {
-                serde::de::Error::custom(format!("unable to parse timestamp: {val}"))
-            })?;
-            Ok(ret)
-        }
-        _ => Err(serde::de::Error::custom("invalid timestamp value")),
+            val.parse::<i64>().map_err(|_| {
+                serde::de::Error::custom(format!("unable to parse timestamp string: {:?}", val))
+            })
+        },
+        _ => Err(serde::de::Error::custom("invalid timestamp value, expected number or string")),
     }
 }
